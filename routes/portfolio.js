@@ -23,45 +23,73 @@ router.get('/summary', async (req, res) => {
       holdings.map(async (holding) => {
         // map你可能在JS基础学过——把array里每一笔资料都做同一件事，回传一个新array。这里特别的是，
         // 每次做的事情里面有await（要去问Finnhub要价格），所以每个都是一个"还没完成的承诺"（Promise）。
-        const response = await fetch(
-          `https://finnhub.io/api/v1/quote?symbol=${holding.symbol}&token=${apiKey}`
-        );
-        // fetch是用来发HTTP请求的（跟浏览器网址栏输入网址、Postman发请求，本质是同一件事，
-        // 只是这次是你的backend自己去当"客户端"，向Finnhub要资料）。
-        // await的意思是"先暂停在这一行，等Finnhub回应了再继续"
-        const priceData = await response.json();
-        // Finnhub回传的是原始的HTTP response，
-        // 还要再"解析"一次才能变成你能用的JavaScript物件——这也是要等的，所以再await一次。
-        const currentPrice = priceData.c;
+        try{
+          const response = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${holding.symbol}&token=${apiKey}`
+          );
+          // fetch是用来发HTTP请求的（跟浏览器网址栏输入网址、Postman发请求，本质是同一件事，
+          // 只是这次是你的backend自己去当"客户端"，向Finnhub要资料）。
+          // await的意思是"先暂停在这一行，等Finnhub回应了再继续"
+          const priceData = await response.json();
+          // Finnhub回传的是原始的HTTP response，
+          // 还要再"解析"一次才能变成你能用的JavaScript物件——这也是要等的，所以再await一次。
+          const currentPrice = priceData.c;
 
-        const currentValue = currentPrice * holding.quantity;
-        const costBasis = holding.avg_buy_price * holding.quantity;
-        const gainLoss = currentValue - costBasis;
-        const gainLossPercent = (gainLoss / costBasis) * 100;
+          if (!currentPrice) {
+            console.error(`无法取得 ${holding.symbol} 的价格:`, priceData);
+            return {
+              id: holding.id,
+              symbol: holding.symbol,
+              quantity: holding.quantity,
+              avgBuyPrice: holding.avg_buy_price,
+              currentPrice: null,
+              currentValue: null,
+              gainLoss: null,
+              gainLossPercent: null,
+            };
+          }
+          
+          const currentValue = currentPrice * holding.quantity;
+          const costBasis = holding.avg_buy_price * holding.quantity;
+          const gainLoss = currentValue - costBasis;
+          const gainLossPercent = (gainLoss / costBasis) * 100;
 
-        return {
-          id: holding.id,
-          symbol: holding.symbol,
-          quantity: holding.quantity,
-          avgBuyPrice: holding.avg_buy_price,
-          currentPrice,
-          currentValue,
-          gainLoss,
-          gainLossPercent,
-        };
-         /*
-        Finnhub这个API回传的资料长这样：
-        {
-        "c": 180.5,   // current price
-        "d": 2.3,     // change
-        "dp": 1.29,   // percent change
-        "h": 182.0,   // high of day
-        "l": 178.9    // low of day
-        }
-        你代码里把它转成更好读的名字（currentPrice、change等）再回传
-        */ 
-      })
-    );
+          return {
+            id: holding.id,
+            symbol: holding.symbol,
+            quantity: holding.quantity,
+            avgBuyPrice: holding.avg_buy_price,
+            currentPrice,
+            currentValue,
+            gainLoss,
+            gainLossPercent,
+          };
+          /*
+          Finnhub这个API回传的资料长这样：
+          {
+          "c": 180.5,   // current price
+          "d": 2.3,     // change
+          "dp": 1.29,   // percent change
+          "h": 182.0,   // high of day
+          "l": 178.9    // low of day
+          }
+          你代码里把它转成更好读的名字（currentPrice、change等）再回传
+          */ 
+    }catch(error){
+      console.error(`查询 ${holding.symbol} 价格失败:`, error);
+      return {
+        id: holding.id,
+        symbol: holding.symbol,
+        quantity: holding.quantity,
+        avgBuyPrice: holding.avg_buy_price,
+        currentPrice: null,
+        currentValue: null,
+        gainLoss: null,
+        gainLossPercent: null,
+      };
+    }
+  })
+);
 
     const totalValue = enrichedHoldings.reduce((sum, h) => sum + h.currentValue, 0);
     const totalCost = enrichedHoldings.reduce(
