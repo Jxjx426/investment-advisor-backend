@@ -9,7 +9,7 @@ const express = require('express');
 const app = express();
 const PORT = 3000;
 
-app.use(cors());
+app.use(cors({ origin: 'https://investment-advisor-frontend.vercel.app' }));
 /*
 cors()这个套件，作用就是帮你的Express server自动加上"我允许任何来源访问"的允许标头。
 开发阶段这样设定完全没问题，正式上线之前可以再限制成"只允许我的前端网址访问"，会更安全
