@@ -48,7 +48,7 @@ router.get('/summary', async (req, res) => {
               gainLossPercent: null,
             };
           }
-          
+
           const currentValue = currentPrice * holding.quantity;
           const costBasis = holding.avg_buy_price * holding.quantity;
           const gainLoss = currentValue - costBasis;
@@ -91,7 +91,7 @@ router.get('/summary', async (req, res) => {
   })
 );
 
-    const totalValue = enrichedHoldings.reduce((sum, h) => sum + h.currentValue, 0);
+    const totalValue = enrichedHoldings.reduce((sum, h) => sum + (h.currentValue || 0), 0);
     const totalCost = enrichedHoldings.reduce(
       (sum, h) => sum + h.avgBuyPrice * h.quantity, 0
     );
