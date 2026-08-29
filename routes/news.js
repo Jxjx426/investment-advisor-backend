@@ -107,12 +107,20 @@ router.get('/:symbol/analysis', async (req, res) => {
       // 把新闻标题们拼成一段编号列表，塞进你要问Claude的问题里。
       // 这叫prompt engineering——你怎么问，会决定它怎么答
 
-    const result = await genAI.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: buildNewsSummaryPrompt(symbol, headlines),
-    });
+    let summary;
+    
+    try{
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: buildNewsSummaryPrompt(symbol, headlines),
+      });
+      summary = result.text;
+    } catch (error) {
+      console.error('Error generating summary:', error);
+      summary = '摘要暂时无法生成（AI服务繁忙），请稍后再试，或直接查看下方新闻列表。';
+    }
 
-    // 3. 合并回传
+      // 3. 合并回传
     res.json({
       symbol: symbol.toUpperCase(),
       articlesAnalyzed: newsData.articles.length,
@@ -120,8 +128,8 @@ router.get('/:symbol/analysis', async (req, res) => {
         label: sentiment,
         positiveSignals: positiveCount,
         negativeSignals: negativeCount,
-      },
-      summary: result.text,
+        },
+      summary,
       note: '情绪标记基于关键字比对，摘要由AI生成 — 仅整理新闻内容，不构成投资建议。',
     });
   } catch (error) {
