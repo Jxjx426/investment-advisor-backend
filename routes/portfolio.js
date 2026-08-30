@@ -119,48 +119,26 @@ router.get('/summary', async (req, res) => {
 
 router.get('/history/:symbol', async (req, res) => {
     const { symbol } = req.params;
-    const apiKey = process.env.ALPHA_VANTAGE_KEY;
+    const apiKey = process.env.TWELVE_DATA_API_KEY;
 
     try {
       const response = await fetch(
-        `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&outputsize=compact&apikey=${apiKey}`
+        `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1d&outputsize=30&apikey=${apiKey}`
       );
       const data = await response.json();
       console.log(data);
 
-      const timeSeries = data['Time Series (Daily)'];
-      /* 
-      Alpha Vantage回传的JSON格式比较特别，欄位名字是一句英文（"Time Series (Daily)"），不是简单的data或items。
-      因为这个名字里有空格跟括号，不能用data.Time Series (Daily)这种写法（JavaScript语法不允许变量名有空格），
-      要用方括号+字串的方式存取：data['Time Series (Daily)']。
-       */
-      if (!timeSeries) {
-        return res.status(404).json({ error: 'No historical data available' });
+      if (data.status === 'error' || !data.values) {
+      console.error(`无法取得 ${symbol} 的历史价格:`, data);
+      return res.status(404).json({ error: 'No historical data available' });
       }
 
-      /*
-      用Object.entries(timeSeries) 因为Alpha Vantage回传的资料长得像这样：
-
-      json
-      {
-        "2026-08-20": { "4. close": "311.30", ... },
-        "2026-08-19": { "4. close": "308.50", ... }
-      }
-
-      这是一个物件，key是日期，不是array。Object.entries(...)把它转换成
-      [["2026-08-20", {...}], ["2026-08-19", {...}]]这种array，才能用map处理。
-      */
-      const history = Object.entries(timeSeries)
-      // 因为Object.entries每个元素是[key, value]这种两个一组的array，
-      // 这里用解构直接拆开成date和values两个变量来用，不用写entry[0]、entry[1]。
-        .map(([date, values]) => ({
-          date,
-          price: parseFloat(values['4. close']),
-          // Alpha Vantage回传的价格是字串（"311.30"不是311.30），要转成真正的数字。
-          // 4. close这个奇怪的欄位名字是Alpha Vantage自己的命名习惯
-        }))
-        .reverse() // "最新日期排最前面"，画折线图要最旧的日期在左边、最新的在右边
-        .slice(-30); // 只取最近30天
+      const history = data.values
+      .map((point) => ({
+        date: point.datetime,
+        price: parseFloat(point.close),
+      }))
+      .reverse();
 
       res.json({ symbol: symbol.toUpperCase(), history });
     } catch (error) {
