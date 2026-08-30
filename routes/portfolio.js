@@ -5,10 +5,15 @@ const router = express.Router();
 // 这是Express提供的"迷你app"功能，让你可以把一群相关的route包成一个模组，
 // 之后整包"挂载"到主app上。
 const pool = require('../db');
+const requireAuth = require('../middleware/auth');
 
-router.get('/summary', async (req, res) => {
+router.get('/summary', requireAuth, async (req, res) => {
   // 之前所有route的function前面都没有async，这次有了，因为这个route内部要"等"外部API回应，
   // 才能继续往下做事。没有async/await的话，JavaScript会不等结果就往下跑，你会拿到还没准备好的资料。
+  if (!req.userId) {
+    return res.status(401).json({ error: '请先登入' });
+  }
+
   const apiKey = process.env.FINNHUB_API_KEY;
   try {
     const holdingsResult = await pool.query(
@@ -118,32 +123,41 @@ router.get('/summary', async (req, res) => {
 });
 
 router.get('/history/:symbol', async (req, res) => {
-    const { symbol } = req.params;
-    const apiKey = process.env.TWELVE_DATA_API_KEY;
+  const symbol = (req.params.symbol || '').toUpperCase();
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
 
-    try {
-      const response = await fetch(
-        `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1d&outputsize=30&apikey=${apiKey}`
-      );
-      const data = await response.json();
-      console.log(data);
+  if (!symbol) {
+    return res.status(400).json({ error: 'Missing symbol' });
+  }
 
-      if (data.status === 'error' || !data.values) {
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Missing Twelve Data API key' });
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1day&outputsize=30&apikey=${apiKey}`
+    );
+    const data = await response.json();
+
+    if (!response.ok || data.status === 'error' || !Array.isArray(data.values)) {
       console.error(`无法取得 ${symbol} 的历史价格:`, data);
       return res.status(404).json({ error: 'No historical data available' });
-      }
+    }
 
-      const history = data.values
+    const history = data.values
       .map((point) => ({
         date: point.datetime,
-        price: parseFloat(point.close),
+        price: Number(point.close),
       }))
+      .filter((point) => Number.isFinite(point.price))
       .reverse();
 
-      res.json({ symbol: symbol.toUpperCase(), history });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch price history' });
-    }
+    return res.json({ symbol, history });
+  } catch (error) {
+    console.error(`Failed to fetch history for ${symbol}:`, error);
+    return res.status(500).json({ error: 'Failed to fetch price history' });
+  }
 });
 
 module.exports = router;

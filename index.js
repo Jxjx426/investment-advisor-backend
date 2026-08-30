@@ -43,7 +43,7 @@ app.get('/ping', (req, res) => {
 });
 
 app.use('/holdings', requireAuth, holdingsRouter);
-app.use('/portfolio', requireAuth, portfolioRouter);
+app.use('/portfolio', portfolioRouter);
 app.use('/news', newsRouter);
 app.use('/auth', authRouter);
 // 意思是"任何以/holdings开头的请求，都交给holdingsRouter处理"。
