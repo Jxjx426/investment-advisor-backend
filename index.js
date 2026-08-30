@@ -12,6 +12,7 @@ const PORT = 3000;
 const allowedOrigins = [
   'https://investment-advisor-frontend-one.vercel.app',
   'http://localhost:5173',
+  'http://localhost:3000',
 ];
 
 app.use(cors({
