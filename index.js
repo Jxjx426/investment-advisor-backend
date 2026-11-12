@@ -1,57 +1,104 @@
-require('dotenv').config();
-const cors = require('cors');
-/*
-CORS（跨来源资源共享）是浏览器内建的一个安全机制：默认情况下，网页只能跟"自己的来源"（同一个网址+port）沟通，
-如果要跟不同的来源（你的情况是localhost:5173 → localhost:3000，port不同就算不同来源）沟通，
-对方必须明确声明"我允许这个来源来问我要资料"，否则浏览器会直接挡下来，不管你的backend其实有没有正确回应。
-*/
-const express = require('express');
-const app = express();
-const PORT = 3000;
+require("dotenv").config({ quiet: true });
+const express = require("express");
+const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const db = require("./db");
+const { createTrackerRouter } = require("./routes/tracker");
+const { createAuthRouter } = require("./routes/auth");
+const { createQuoteService } = require("./services/quotes");
 
-const allowedOrigins = [
-  'https://investment-advisor-frontend-one.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+function createApp(database = db, env = process.env, quoteService) {
+  if (!env.JWT_SECRET) throw new Error("JWT_SECRET must be configured.");
+  const app = express();
+  app.disable("x-powered-by");
+  const origins = (
+    env.ALLOWED_ORIGINS ||
+    "http://localhost:5173,http://127.0.0.1:5173,https://investment-advisor-frontend-one.vercel.app"
+  ).split(",");
+  app.use(
+    cors({
+      origin: (origin, callback) =>
+        callback(null, !origin || origins.includes(origin)),
+    }),
+  );
+  app.use(express.json({ limit: "1mb" }));
+  app.use((req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
+  const auth = async (req, res, next) => {
+    const match = /^Bearer (.+)$/.exec(req.headers.authorization || "");
+    if (!match) return res.status(401).json({ error: "Please sign in." });
+    try {
+      const payload = jwt.verify(match[1], env.JWT_SECRET, {
+        algorithms: ["HS256"],
+      });
+      if (
+        !Number.isSafeInteger(payload.userId) ||
+        !(
+          await database.query("SELECT id FROM users WHERE id=$1", [
+            payload.userId,
+          ])
+        ).rowCount
+      )
+        return res.status(401).json({ error: "Please sign in again." });
+      req.userId = payload.userId;
+    } catch (error) {
+      if (error instanceof jwt.JsonWebTokenError)
+        return res
+          .status(401)
+          .json({ error: "Your session expired. Please sign in again." });
+      return next(error);
     }
-  },
-}));
-/*
-cors()这个套件，作用就是帮你的Express server自动加上"我允许任何来源访问"的允许标头。
-开发阶段这样设定完全没问题，正式上线之前可以再限制成"只允许我的前端网址访问"，会更安全
-*/
-
-const holdingsRouter = require('./routes/holdings');
-const portfolioRouter = require('./routes/portfolio');
-const newsRouter = require('./routes/news');
-const authRouter = require('./routes/auth');
-const requireAuth = require('./middleware/auth');
-
-app.get('/', (req, res) => {
-  res.send('Backend is alive!');
-});
-
-app.get('/ping', (req, res) => {
-  res.json({ message: 'pong', status: 'ok' });
-});
-
-app.use('/holdings', requireAuth, holdingsRouter);
-app.use('/portfolio', portfolioRouter);
-app.use('/news', newsRouter);
-app.use('/auth', authRouter);
-// 意思是"任何以/holdings开头的请求，都交给holdingsRouter处理"。
-// 所以holdings.js里写的router.get('/')，实际上对应的完整网址是/holdings；
-// router.get('/:id')对应的是/holdings/:id。
-// 这就是为什么之前那些route里，路径都要"去掉/holdings这个前缀"重写。
-
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+    next();
+  };
+  app.get("/ping", (req, res) => res.json({ status: "ok", phase: 1 }));
+  app.use("/auth", createAuthRouter(database, env.JWT_SECRET));
+  app.use(
+    "/tracker",
+    auth,
+    createTrackerRouter(
+      database,
+      quoteService || createQuoteService(database, env),
+      { demo: env.DEMO_MODE === "true" },
+    ),
+  );
+  // Preserve research routes for Phase 3; all financial/research endpoints require a session.
+  if (env.ENABLE_LEGACY_ROUTES === "true") {
+    app.use("/holdings", auth, require("./routes/holdings"));
+    app.use("/portfolio", auth, require("./routes/portfolio"));
+    app.use("/news", auth, require("./routes/news"));
+  }
+  app.use((req, res) => res.status(404).json({ error: "Endpoint not found." }));
+  app.use((error, req, res, next) => {
+    // eslint-disable-line no-unused-vars
+    if (!error.status || error.status >= 500)
+      console.error("Request failed:", error.message);
+    const status = error.status || 500;
+    res
+      .status(status)
+      .json({
+        error:
+          status < 500
+            ? error.message
+            : "The server could not complete this request. Try again.",
+      });
+  });
+  return app;
+}
+if (require.main === module) {
+  db.init()
+    .then(() => {
+      const port = Number(process.env.PORT || 3000);
+      createApp().listen(port, process.env.HOST || "127.0.0.1", () =>
+        console.log(
+          `Tracker API ready at http://${process.env.HOST || "127.0.0.1"}:${port}`,
+        ),
+      );
+    })
+    .catch((error) => {
+      console.error("Startup failed:", error.message);
+      process.exitCode = 1;
+    });
+}
+module.exports = { createApp };
