@@ -1,5 +1,6 @@
 const express = require("express");
 const { applyFundingSnapshots } = require("../lib/funding");
+const { normalizeSnapshot, compare } = require("../lib/reconciliation");
 const {
   normalize,
   replay,
@@ -7,22 +8,9 @@ const {
   units,
   text,
   multiply,
+  FIELDS,
+  today,
 } = require("../lib/accounting");
-const FIELDS = [
-  "owner_id",
-  "kind",
-  "occurred_on",
-  "sequence",
-  "market",
-  "symbol",
-  "currency",
-  "quantity",
-  "price",
-  "fee",
-  "amount",
-  "fx_rate",
-  "notes",
-];
 function createTrackerRouter(db, quotes, options = {}) {
   const router = express.Router();
   const history = async (client, userId) =>
@@ -135,6 +123,8 @@ function createTrackerRouter(db, quotes, options = {}) {
       is_demo: !!options.demo,
       is_local: !!options.local,
       funding_snapshots: fundingSnapshots,
+      opening_owners: ledger.opening_owners,
+      phase: 2,
       owners: profiles,
       accounts: ledger.accounts,
       positions,
@@ -206,6 +196,11 @@ function createTrackerRouter(db, quotes, options = {}) {
       normalized.forEach((r, i) => {
         if (!allowed.has(r.owner_id))
           fail(`Row ${i + 1}: Owner not found.`, 404);
+        if (
+          r.counterparty_owner_id !== null &&
+          !allowed.has(r.counterparty_owner_id)
+        )
+          fail(`Row ${i + 1}: Receiving owner not found.`, 404);
       });
       const old = await history(client, req.userId);
       const seen = new Set(old.map(fingerprint));
@@ -249,8 +244,9 @@ function createTrackerRouter(db, quotes, options = {}) {
     });
   }
   function fingerprint(row) {
+    const entry = normalize(row);
     return JSON.stringify(
-      FIELDS.filter((f) => f !== "notes").map((f) => row[f]),
+      FIELDS.filter((f) => f !== "notes").map((f) => entry[f]),
     );
   }
   for (const method of ["put", "delete"])
@@ -275,11 +271,18 @@ function createTrackerRouter(db, quotes, options = {}) {
           const profiles = await owners(client, req.userId);
           if (!profiles.some((p) => p.id === next.owner_id))
             fail("Owner not found.", 404);
+          if (
+            next.counterparty_owner_id !== null &&
+            !profiles.some(
+              (profile) => profile.id === next.counterparty_owner_id,
+            )
+          )
+            fail("Receiving owner not found.", 404);
         }
         const all = await history(client, req.userId);
         replay(all.map((r) => (r.id === id ? next : r)));
         await client.query(
-          `UPDATE tracker_transactions SET ${FIELDS.map((f, i) => `${f}=$${i + 1}`).join(",")},version=$14,voided=$15 WHERE id=$16 AND user_id=$17`,
+          `UPDATE tracker_transactions SET ${FIELDS.map((f, i) => `${f}=$${i + 1}`).join(",")},version=$${FIELDS.length + 1},voided=$${FIELDS.length + 2} WHERE id=$${FIELDS.length + 3} AND user_id=$${FIELDS.length + 4}`,
           [
             ...FIELDS.map((f) => next[f]),
             next.version,
@@ -306,6 +309,61 @@ function createTrackerRouter(db, quotes, options = {}) {
       [Number(req.params.id), req.userId],
     );
     res.json(result.rows);
+  });
+  async function reconciliation(client, userId, snapshot) {
+    const rows = await history(client, userId);
+    const funding = (
+      await client.query(
+        "SELECT owner_id,as_of,amount_myr FROM tracker_funding_snapshots WHERE user_id=$1",
+        [userId],
+      )
+    ).rows;
+    return compare(rows, funding, snapshot);
+  }
+  router.get("/reconciliation", async (req, res) => {
+    const saved = (
+      await db.query(
+        "SELECT version,snapshot_json,created_at FROM tracker_reconciliations WHERE user_id=$1 ORDER BY version DESC LIMIT 1",
+        [req.userId],
+      )
+    ).rows[0];
+    const snapshot = saved
+      ? JSON.parse(saved.snapshot_json)
+      : {
+          as_of: today(),
+          cash: { MYR: null, USD: null },
+          positions: [],
+          complete: false,
+        };
+    res.json({
+      version: saved?.version || 0,
+      snapshot,
+      comparison: await reconciliation(db, req.userId, snapshot),
+    });
+  });
+  router.put("/reconciliation", async (req, res) => {
+    const snapshot = normalizeSnapshot(req.body);
+    const result = await db.transaction(req.userId, async (client) => {
+      const old = (
+        await client.query(
+          "SELECT version FROM tracker_reconciliations WHERE user_id=$1 ORDER BY version DESC LIMIT 1",
+          [req.userId],
+        )
+      ).rows[0];
+      const version = old?.version || 0;
+      if (Number(req.body.version) !== version)
+        fail("This reconciliation changed. Reload before saving.", 409);
+      await client.query(
+        "INSERT INTO tracker_reconciliations(user_id,version,snapshot_json) VALUES($1,$2,$3)",
+        [req.userId, version + 1, JSON.stringify(snapshot)],
+      );
+      return {
+        version: version + 1,
+        snapshot,
+        comparison: await reconciliation(client, req.userId, snapshot),
+      };
+    });
+    res.json(result);
   });
   return router;
 }

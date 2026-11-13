@@ -1,4 +1,5 @@
 const { Pool, types } = require("pg");
+const { transactionTable, migrate } = require("./lib/schema");
 types.setTypeParser(1082, (value) => value);
 
 function createDatabase(env = process.env) {
@@ -70,13 +71,7 @@ function createDatabase(env = process.env) {
       `CREATE TABLE IF NOT EXISTS tracker_owners (id ${id}, user_id INTEGER NOT NULL REFERENCES users(id),
         owner_key TEXT NOT NULL CHECK(owner_key IN ('mine','father')), name TEXT NOT NULL,
         UNIQUE(user_id, owner_key), UNIQUE(id, user_id))`,
-      `CREATE TABLE IF NOT EXISTS tracker_transactions (id ${id}, user_id INTEGER NOT NULL REFERENCES users(id),
-        owner_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('BUY','SELL','DEPOSIT','WITHDRAWAL','DIVIDEND')),
-        occurred_on DATE NOT NULL, sequence INTEGER NOT NULL DEFAULT 0, market TEXT CHECK(market IN ('US','MY')), symbol TEXT,
-        currency TEXT NOT NULL CHECK(currency IN ('USD','MYR')), quantity ${decimal} NOT NULL,
-        price ${decimal} NOT NULL, fee ${decimal} NOT NULL, amount ${decimal} NOT NULL, fx_rate ${decimal},
-        notes TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1, voided INTEGER NOT NULL DEFAULT 0,
-        created_at ${timestamp}, FOREIGN KEY(owner_id, user_id) REFERENCES tracker_owners(id, user_id))`,
+      transactionTable("tracker_transactions", id, decimal, timestamp),
       "CREATE INDEX IF NOT EXISTS tracker_transaction_history ON tracker_transactions(user_id, occurred_on, sequence, id)",
       `CREATE TABLE IF NOT EXISTS tracker_audit (id ${id}, user_id INTEGER NOT NULL REFERENCES users(id),
         transaction_id INTEGER NOT NULL REFERENCES tracker_transactions(id), action TEXT NOT NULL,
@@ -88,8 +83,11 @@ function createDatabase(env = process.env) {
       `CREATE TABLE IF NOT EXISTS tracker_funding_snapshots (user_id INTEGER NOT NULL REFERENCES users(id),
         owner_id INTEGER NOT NULL, as_of DATE NOT NULL, amount_myr ${decimal} NOT NULL,
         PRIMARY KEY(user_id,owner_id), FOREIGN KEY(owner_id,user_id) REFERENCES tracker_owners(id,user_id))`,
+      `CREATE TABLE IF NOT EXISTS tracker_migrations(version INTEGER PRIMARY KEY,applied_at ${timestamp})`,
+      `CREATE TABLE IF NOT EXISTS tracker_reconciliations(id ${id},user_id INTEGER NOT NULL REFERENCES users(id),version INTEGER NOT NULL,snapshot_json TEXT NOT NULL,created_at ${timestamp},UNIQUE(user_id,version))`,
     ];
     for (const sql of statements) await db.query(sql);
+    await migrate(db, sqlite, pool, { id, decimal, timestamp });
   };
   db.close = async () => (local ? sqlite.close() : pool.end());
   return db;

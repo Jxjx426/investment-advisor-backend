@@ -1,6 +1,22 @@
-# My Investment Tracker - Phase 1
+# My Investment Tracker - Phase 2
 
-Existing Express/PostgreSQL app rebuilt around an owner-specific transaction ledger. Work is on `rebuild/phase-1-tracker`; nothing has been deployed and the cloud database has not been migrated by this rebuild session.
+Existing Express/PostgreSQL app rebuilt around an owner-specific transaction ledger. Phase 2 work is on `rebuild/phase-2-records`, based on the committed Phase 1 rebuild. Nothing has been deployed and the cloud database has not been migrated by this rebuild session.
+
+## Phase 2
+
+- **Exchange:** enter source currency/amount and the amount actually received. Fees debit the source currency. Both cash legs belong to one owner and neither creates a contribution or trading profit. “Use current rate” is available as an explicit estimate and remains flagged in the record.
+- **Transfer:** move cash between Mine and Dad. The receiving owner's history includes the incoming leg. External contributions remain unchanged; net transfers appear separately. Corrections and deletes affect both legs atomically.
+- **Dividends/tax:** record gross dividend, withholding tax and other fees separately. Dedicated TAX records support later tax payments. Existing dividends are retained without inventing missing withholding.
+- **Splits:** use old:new share ratios, including reverse splits. Total cost remains unchanged. Unsupported fractions smaller than eight decimal places are rejected; cash in lieu is not generated automatically.
+- **Opening balances:** OPENING_CASH accepts zero or positive native cash; OPENING_POSITION accepts shares and exact total cost. Opening shares do not spend cash, and opening cash is not a deposit. These entries must precede the relevant history. Explicit opening balances prevent the prior capital snapshot from being added to cash twice; historical realized P/L before the opening date remains unknown.
+- **Reconcile:** Cash -> Reconcile compares the combined ledger with manually entered Moomoo balances and share quantities at a chosen date. Blank broker values stay unknown. Only an explicit “All broker holdings listed” selection treats omitted stocks as zero. Broker-only stocks can be added. Cash comparison rounds differences to cents; shares retain eight decimals. Estimated cash never becomes an exact matched status. Saved comparisons retain prior versions and recalculate after transaction corrections.
+- **Import/export:** the original columns remain valid. Optional new columns are `to_owner,target_currency,target_amount,tax,split_from,split_to,fx_estimated`. Receiving owners use `mine`/`father`; `fx_estimated` is 0/1. One row represents an entire exchange or transfer.
+
+The supplied 39 records remain intact. Historical exchange/deposit dates and actual Moomoo snapshots are still not supplied; no synthetic exchanges, tax payments, splits or broker balances have been inserted into the real records.
+
+### Schema upgrade
+
+The local SQLite preview creates a consistent `.phase1-backup-<timestamp>.db` beside its private database before rebuilding the transaction table. IDs, dates, audit foreign keys and prior values are preserved; repeated startup is idempotent. The upgrade is verified with a Phase 1 file fixture and was applied only to the local preview. PostgreSQL startup includes a transactional, versioned upgrade with an advisory lock; it has not been executed against the cloud database.
 
 ## Run a disposable preview
 
@@ -27,7 +43,7 @@ Demo records and prices are illustrative, clearly labelled, and stored only in m
 
 ## Use your private database
 
-Keep your existing `.env` and existing login. New settings are documented in `.env.example`. Startup runs additive `CREATE TABLE IF NOT EXISTS` statements; existing `users` and `holdings` rows are retained. Tracker data lives in separate `tracker_*` tables. Legacy aggregate holdings are not converted into invented trades or assigned to an owner automatically.
+Keep your existing `.env` and existing login. New settings are documented in `.env.example`. Startup creates missing tables and applies the versioned Phase 2 transaction-schema upgrade described above. Existing `users` and `holdings` rows are retained. Tracker data lives in separate `tracker_*` tables. Legacy aggregate holdings are not converted into invented trades or assigned to an owner automatically.
 
 Run `npm start` only against the database you intend to use. For an isolated persistent local database, set `DB_CLIENT=sqlite` and `DB_FILE=tracker.local.db` before starting. For PostgreSQL, use `DATABASE_URL`. TLS certificate verification is enabled by default; use the database provider's trusted CA configuration. `HOST` defaults to loopback; managed hosting may require `HOST=0.0.0.0`.
 
@@ -38,12 +54,12 @@ If you forgot the original account password, run `npm run reset-password` in you
 ## Accounting contract
 
 - Two virtual owners, `mine` and `father`, are created for the signed-in account. Combined views sum their results; they never share a cost basis.
-- Supported entries: BUY, SELL, DEPOSIT, WITHDRAWAL and basic DIVIDEND. Dividends were brought forward from Phase 2 to represent the four distributions confirmed in the supplied records. `amount` is gross dividend if tax is known; `fee` records withholding/costs. A cash-received amount with unknown withholding can be entered with a note rather than inventing tax history.
+- Supported entries: BUY, SELL, DEPOSIT, WITHDRAWAL, DIVIDEND, FX, TRANSFER, SPLIT, OPENING_CASH, OPENING_POSITION and TAX. `tax` is the explicitly known dividend withholding; `fee` records other costs. Legacy dividend fees are retained unchanged. A cash-received dividend with unknown withholding can keep its source note rather than inventing gross or tax history.
 - Amounts, prices, quantities and fees use eight-place fixed-point arithmetic. PostgreSQL stores exact NUMERIC values, SQLite stores decimal text, and API calculations return decimal strings. UI totals convert these for display only.
 - Purchases add quantity times price plus exact fee to cost. A partial sale allocates weighted cost in proportion to shares sold. Sale fees reduce proceeds. Final sales remove all remaining cost, leaving closed-position realized profit in history.
 - Replay order is calendar date, explicit same-day sequence, then record ID. Corrections and deletes replay the entire history and reject overselling. Deletes are soft deletes. Every mutation writes before/after audit records in the same transaction.
 - Mutations acquire a per-user PostgreSQL advisory transaction lock; SQLite mutations are serialized. Version checks prevent stale edits. Bulk imports validate the entire batch and commit atomically. Duplicate fingerprints require explicit confirmation.
-- Currency ledgers remain separate. Deposits minus withdrawals are contributions, never trading profit. Missing historical FX stays missing. At the user's request, current USD/MYR converts the native cash ledgers into an estimated MYR cash total; these estimates are visibly labelled. No historical exchanges are generated. Exact brokerage cash reconciliation requires actual exchange records in Phase 2.
+- Currency ledgers remain separate. Deposits minus withdrawals are external contributions, never trading profit. Missing historical FX stays missing. At the user's request, current USD/MYR converts native ledgers for display. Explicitly estimated exchange entries, incomplete funding snapshots and missing opening cash are flagged. Exact exchanges are not labelled estimates merely because display currency uses current FX. No historical exchanges are generated.
 - Negative currency cash is permitted while historical funding is incomplete. It is visible and explained; this permits loading trades before deposits.
 
 ## Market data
@@ -74,4 +90,4 @@ The frontend has `npm test` and `npm run build`. Desktop and 390px mobile layout
 
 ## Remaining phases
 
-Phase 2: actual currency conversions, transfers between owners, stock splits, opening balances, dedicated tax records and brokerage reconciliation. Phase 3: chart/news/sentiment integration, deployment, automated backups and final hardening.
+Phase 2 features are implemented locally. Actual brokerage reconciliation remains pending the user's Moomoo figures and any missing history. Phase 3: chart/news/sentiment integration, deployment, automated backups and final hardening.
