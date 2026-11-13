@@ -8,6 +8,7 @@ backups/
 *.enc
 *.key
 .backup-output/
+backup-output/
 .tool-cache/
 private-records/
 .env.*
