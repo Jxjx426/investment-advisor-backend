@@ -11,6 +11,8 @@
     "reset-password": "node scripts/reset-password.js",
     "test": "node --test test/*.test.js",
     "create-user": "node scripts/create-user.js"
+    ,"backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js"
   },
   "keywords": [],
   "author": "",

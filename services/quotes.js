@@ -1,6 +1,6 @@
 const { units, text } = require("../lib/accounting");
 const TTL = 5 * 60 * 1000;
-function createQuoteService(db, env = process.env, fetcher = fetch) {
+function createQuoteService(db, env = process.env, fetcher = fetch, budget) {
   const pending = new Map(),
     attempts = new Map();
   async function get(instrument) {
@@ -50,6 +50,7 @@ function createQuoteService(db, env = process.env, fetcher = fetch) {
             source = "Twelve Data";
             currency = "MYR";
           }
+          if (budget) await budget.reserve(market === "US" ? "finnhub" : "twelve");
           const response = await fetcher(url, {
             signal: AbortSignal.timeout(8000),
           });

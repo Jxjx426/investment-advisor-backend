@@ -4,6 +4,7 @@ process.env.DB_FILE = ":memory:";
 const path = require("node:path");
 const fs = require("node:fs");
 const { randomBytes } = require("node:crypto");
+const { startBackupScheduler } = require("../lib/backup");
 const bcrypt = require("bcrypt");
 const { createDatabase } = require("../db");
 const { createApp } = require("../index");
@@ -118,13 +119,16 @@ async function main() {
       ],
     );
   }
+  const secretFile = path.resolve(__dirname, "../../private-records/preview-session.key");
+  if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, randomBytes(32).toString("hex"), { flag: "wx", mode: 0o600 });
   const app = createApp(db, {
     ...process.env,
-    JWT_SECRET: randomBytes(32).toString("hex"),
+    JWT_SECRET: fs.readFileSync(secretFile, "utf8").trim(),
     ENABLE_LEGACY_ROUTES: "false",
     DEMO_MODE: "false",
     LOCAL_RECORDS: "true",
   });
+  const scheduler = startBackupScheduler(db, { AUTO_BACKUP: "true", BACKUP_DIR: path.resolve(__dirname, "../../private-records/backups") });
   const server = app.listen(3000, "127.0.0.1", () =>
     console.log(
       "Your records · local preview · http://127.0.0.1:3000\nLogin: preview@local.test / local-preview-only\nPrivate database: " +
@@ -133,7 +137,7 @@ async function main() {
   );
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () =>
-      server.close(() => db.close().then(() => process.exit(0))),
+      server.close(async () => { await scheduler.stop(); await db.close(); process.exit(0); }),
     );
 }
 main().catch((error) => {

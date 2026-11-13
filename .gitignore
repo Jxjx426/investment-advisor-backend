@@ -1,3 +1,11 @@
 node_modules
 .env
 *.db
+*.db-*
+*.db.*
+backups/
+*.json.gz
+.tool-cache/
+private-records/
+.env.*
+!.env.example

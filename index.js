@@ -6,11 +6,21 @@ const db = require("./db");
 const { createTrackerRouter } = require("./routes/tracker");
 const { createAuthRouter } = require("./routes/auth");
 const { createQuoteService } = require("./services/quotes");
+const { createUsageBudget } = require("./services/usage");
+const { createResearchService } = require("./services/research");
+const { createResearchRouter } = require("./routes/research");
+const { snapshot, startBackupScheduler } = require("./lib/backup");
 
-function createApp(database = db, env = process.env, quoteService) {
+function createApp(database = db, env = process.env, quoteService, researchService) {
   if (!env.JWT_SECRET) throw new Error("JWT_SECRET must be configured.");
+  if (env.NODE_ENV === "production") {
+    if (Buffer.byteLength(env.JWT_SECRET) < 32) throw new Error("Use a JWT_SECRET of at least 32 bytes in production.");
+    if (!env.DATABASE_URL) throw new Error("DATABASE_URL is required in production.");
+    if (env.ENABLE_LEGACY_ROUTES === "true" || env.LOCAL_RECORDS === "true" || env.DEMO_MODE === "true") throw new Error("Local/demo and legacy routes must be disabled in production.");
+  }
   const app = express();
   app.disable("x-powered-by");
+  if (env.TRUST_PROXY === "1") app.set("trust proxy", 1);
   const origins = (
     env.ALLOWED_ORIGINS ||
     "http://localhost:5173,http://127.0.0.1:5173,https://investment-advisor-frontend-one.vercel.app"
@@ -24,6 +34,9 @@ function createApp(database = db, env = process.env, quoteService) {
   app.use(express.json({ limit: "1mb" }));
   app.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Referrer-Policy", "no-referrer");
+    res.set("X-Frame-Options", "DENY");
     next();
   });
   const auth = async (req, res, next) => {
@@ -52,17 +65,28 @@ function createApp(database = db, env = process.env, quoteService) {
     }
     next();
   };
-  app.get("/ping", (req, res) => res.json({ status: "ok", phase: 1 }));
+  app.get("/ping", async (req, res, next) => {
+    try { await database.query("SELECT 1"); res.json({ status: "ok", phase: 3 }); }
+    catch (error) { next(error); }
+  });
+  const budget = createUsageBudget(database, env);
   app.use("/auth", createAuthRouter(database, env.JWT_SECRET));
   app.use(
     "/tracker",
     auth,
     createTrackerRouter(
       database,
-      quoteService || createQuoteService(database, env),
+      quoteService || createQuoteService(database, env, fetch, budget),
       { demo: env.DEMO_MODE === "true", local: env.LOCAL_RECORDS === "true" },
     ),
   );
+  app.use("/research", auth, createResearchRouter(researchService || createResearchService(database, env, { budget })));
+  app.get("/backup", auth, async (req, res, next) => {
+    try {
+      res.set("Content-Disposition", `attachment; filename="investments-${new Date().toISOString().slice(0, 10)}.json"`);
+      res.json(await snapshot(database, req.userId));
+    } catch (error) { next(error); }
+  });
   // Preserve research routes for Phase 3; all financial/research endpoints require a session.
   if (env.ENABLE_LEGACY_ROUTES === "true") {
     app.use("/holdings", auth, require("./routes/holdings"));
@@ -88,11 +112,16 @@ if (require.main === module) {
   db.init()
     .then(() => {
       const port = Number(process.env.PORT || 3000);
-      createApp().listen(port, process.env.HOST || "127.0.0.1", () =>
+      const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+      const scheduler = startBackupScheduler(db);
+      const server = createApp().listen(port, host, () =>
         console.log(
-          `Tracker API ready at http://${process.env.HOST || "127.0.0.1"}:${port}`,
+          `Tracker API ready at http://${host}:${port}`,
         ),
       );
+      for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => {
+        server.close(async () => { await scheduler.stop(); await db.close(); process.exit(0); });
+      });
     })
     .catch((error) => {
       console.error("Startup failed:", error.message);
