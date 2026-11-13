@@ -60,7 +60,7 @@ function createApp(database = db, env = process.env, quoteService) {
     createTrackerRouter(
       database,
       quoteService || createQuoteService(database, env),
-      { demo: env.DEMO_MODE === "true" },
+      { demo: env.DEMO_MODE === "true", local: env.LOCAL_RECORDS === "true" },
     ),
   );
   // Preserve research routes for Phase 3; all financial/research endpoints require a session.
@@ -75,14 +75,12 @@ function createApp(database = db, env = process.env, quoteService) {
     if (!error.status || error.status >= 500)
       console.error("Request failed:", error.message);
     const status = error.status || 500;
-    res
-      .status(status)
-      .json({
-        error:
-          status < 500
-            ? error.message
-            : "The server could not complete this request. Try again.",
-      });
+    res.status(status).json({
+      error:
+        status < 500
+          ? error.message
+          : "The server could not complete this request. Try again.",
+    });
   });
   return app;
 }

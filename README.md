@@ -4,6 +4,12 @@ Existing Express/PostgreSQL app rebuilt around an owner-specific transaction led
 
 ## Run a disposable preview
 
+To open your real records with both servers from one terminal, run `npm run preview` in `C:\Investment-advisor\Backend`, then open `http://127.0.0.1:5173`. Login: `preview@local.test` / `local-preview-only`. Ctrl+C stops both local servers. The standalone commands below remain available.
+
+For your imported records instead of demo data, run `npm run preview-records` in the backend. It reads the private reviewed JSON and creates `C:\Investment-advisor\private-records\tracker-preview.db`, outside Git. Login: `preview@local.test` / `local-preview-only`. Existing imported entries are retained on restart. The server binds only to loopback and never connects to your cloud database. Stock/FX quotes use the existing API keys.
+
+The supplied capital totals are stored as contribution snapshots dated to the record-review date, without creating fictional deposits. Actual dated contributions through that snapshot date are deducted from its adjustment to prevent double counting. Later deposits increase capital normally. Historical running cash stays unavailable where deposit dates are unknown. Missing actual FX prevents an unsupported adjustment. This remains an estimate until reconciliation.
+
 ```powershell
 cd C:\Investment-advisor\Backend
 npm run demo
@@ -26,6 +32,8 @@ Keep your existing `.env` and existing login. New settings are documented in `.e
 Run `npm start` only against the database you intend to use. For an isolated persistent local database, set `DB_CLIENT=sqlite` and `DB_FILE=tracker.local.db` before starting. For PostgreSQL, use `DATABASE_URL`. TLS certificate verification is enabled by default; use the database provider's trusted CA configuration. `HOST` defaults to loopback; managed hosting may require `HOST=0.0.0.0`.
 
 Public registration is disabled. If the chosen database has no account, run `npm run create-user -- your@email.com`. The script asks for a password in the terminal and refuses to replace an existing account. Do not use the public demo password for private records. The normal login remains valid for seven days. All tracker endpoints verify the signed token and the account, and scope data to that user.
+
+If you forgot the original account password, run `npm run reset-password` in your own interactive terminal. It uses the database configured by `.env`, selects the only account (or requires an email argument if there is more than one), asks twice for a hidden new password and updates the bcrypt hash. No password goes in chat, shell arguments or logs. The rebuild has not executed this command against the cloud database.
 
 ## Accounting contract
 
@@ -54,7 +62,9 @@ Trades -> Bulk entry accepts pasted CSV/TSV, local CSV/TSV/text, or a reviewed J
 
 Columns: `owner,date,type,market,symbol,currency,quantity,price,fee,amount,fx_rate,sequence,notes`. Owners use `mine`/`father`, dates use YYYY-MM-DD, fees and prices are positive, market is US/MY, and `fx_rate` means MYR per USD only when actually known. Use Bursa code `1155` for Maybank; the code remains a string, preserving leading zeroes for other stocks.
 
-The private draft at `C:\Investment-advisor\private-records\reviewed-records.json` is outside both Git repositories. It contains 39 PDF records, including the confirmed GOOG fee correction, four cash distributions, and separate funding totals. No deposit dates or historical FX have been invented. No real records have been imported into a database. Funding dates and the PDF's inconsistent bottom total remain to be reconciled.
+The private input at `C:\Investment-advisor\private-records\reviewed-records.json` is outside both Git repositories. It contains 39 PDF records, including the confirmed GOOG fee correction, four cash distributions, and separate funding totals. These records are imported into the private local preview only. The cloud database is unchanged. No deposit dates or historical FX have been invented. Funding dates and the PDF's inconsistent bottom total remain to be reconciled.
+
+The local input may also contain timestamped `quote_snapshots`. The preview imports newer snapshots into its local quote cache, retaining the source and quote timestamp; it never overwrites a newer provider quote with an older snapshot. Maybank's snapshot was verified on [its investor-relations site](https://maybank.listedcompany.com/). This is a dated quote, not a new automatic Bursa pricing provider.
 
 ## Validation
 

@@ -1,4 +1,5 @@
 const express = require("express");
+const { applyFundingSnapshots } = require("../lib/funding");
 const {
   normalize,
   replay,
@@ -66,6 +67,13 @@ function createTrackerRouter(db, quotes, options = {}) {
     );
     const all = await history(db, req.userId);
     const ledger = replay(all);
+    const fundingSnapshots = (
+      await db.query(
+        "SELECT owner_id,as_of,amount_myr FROM tracker_funding_snapshots WHERE user_id=$1",
+        [req.userId],
+      )
+    ).rows;
+    applyFundingSnapshots(ledger, fundingSnapshots);
     const keys = [
       ...new Set(
         ledger.positions
@@ -125,6 +133,8 @@ function createTrackerRouter(db, quotes, options = {}) {
     ).rows[0];
     res.json({
       is_demo: !!options.demo,
+      is_local: !!options.local,
+      funding_snapshots: fundingSnapshots,
       owners: profiles,
       accounts: ledger.accounts,
       positions,

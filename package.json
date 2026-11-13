@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "demo": "node scripts/demo.js",
+    "preview-records": "node scripts/preview-records.js",
+    "preview": "node scripts/preview.js",
+    "reset-password": "node scripts/reset-password.js",
     "test": "node --test test/*.test.js",
     "create-user": "node scripts/create-user.js"
   },

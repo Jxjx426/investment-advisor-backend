@@ -85,6 +85,9 @@ function createDatabase(env = process.env) {
         currency TEXT NOT NULL, quoted_at TEXT NOT NULL, fetched_at TEXT NOT NULL, source TEXT NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS tracker_manual_quotes (user_id INTEGER NOT NULL REFERENCES users(id),
         instrument TEXT NOT NULL, price ${decimal} NOT NULL, quoted_at TEXT NOT NULL, PRIMARY KEY(user_id,instrument))`,
+      `CREATE TABLE IF NOT EXISTS tracker_funding_snapshots (user_id INTEGER NOT NULL REFERENCES users(id),
+        owner_id INTEGER NOT NULL, as_of DATE NOT NULL, amount_myr ${decimal} NOT NULL,
+        PRIMARY KEY(user_id,owner_id), FOREIGN KEY(owner_id,user_id) REFERENCES tracker_owners(id,user_id))`,
     ];
     for (const sql of statements) await db.query(sql);
   };
