@@ -1,5 +1,6 @@
 const { Pool, types } = require("pg");
-const { transactionTable, migrate } = require("./lib/schema");
+const { transactionTable, migrate, migratePostgres } = require("./lib/schema");
+const { postgresConfig } = require("./lib/postgres-config");
 types.setTypeParser(1082, (value) => value);
 
 function createDatabase(env = process.env) {
@@ -7,16 +8,15 @@ function createDatabase(env = process.env) {
   let sqlite, pool;
   if (local) {
     const Database = require("better-sqlite3");
-    sqlite = new Database(env.DB_FILE || "tracker.local.db");
+    sqlite = new Database(
+      env.DB_FILE || "tracker.local.db",
+      env.DB_READ_ONLY === "true"
+        ? { readonly: true, fileMustExist: true }
+        : {},
+    );
     sqlite.pragma("foreign_keys = ON");
   } else {
-    pool = new Pool({
-      connectionString: env.DATABASE_URL,
-      ssl:
-        env.DB_SSL === "false"
-          ? false
-          : { rejectUnauthorized: env.DB_SSL_VERIFY !== "false" },
-    });
+    pool = new Pool(postgresConfig(env));
   }
   const queryLocal = async (sql, params = []) => {
     const values = [];
@@ -66,12 +66,26 @@ function createDatabase(env = process.env) {
       const result = await action(client);
       await client.query("COMMIT");
       return result;
-    } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   };
   db.columns = async (table) => {
     if (!/^[a-z_]+$/.test(table)) throw new Error("Invalid table name.");
-    return local ? sqlite.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name) : (await db.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 ORDER BY ordinal_position", [table])).rows.map(row => row.column_name);
+    return local
+      ? sqlite
+          .prepare(`PRAGMA table_info(${table})`)
+          .all()
+          .map((row) => row.name)
+      : (
+          await db.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 ORDER BY ordinal_position",
+            [table],
+          )
+        ).rows.map((row) => row.column_name);
   };
   db.init = async () => {
     const id = local
@@ -104,8 +118,24 @@ function createDatabase(env = process.env) {
       `CREATE TABLE IF NOT EXISTS tracker_api_usage(provider TEXT NOT NULL,window_key TEXT NOT NULL,calls INTEGER NOT NULL,PRIMARY KEY(provider,window_key))`,
       `CREATE TABLE IF NOT EXISTS tracker_research_cache(cache_key TEXT PRIMARY KEY,payload_json TEXT,fetched_at TEXT,next_attempt_at TEXT NOT NULL,error TEXT)`,
     ];
-    for (const sql of statements) await db.query(sql);
-    await migrate(db, sqlite, pool, { id, decimal, timestamp });
+    if (local) {
+      for (const sql of statements) await db.query(sql);
+      await migrate(db, sqlite, pool, { id, decimal, timestamp });
+    } else {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock($1)", [1342177282]);
+        for (const sql of statements) await client.query(sql);
+        await migratePostgres(client, { id, decimal, timestamp });
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
   };
   db.close = async () => (local ? sqlite.close() : pool.end());
   return db;

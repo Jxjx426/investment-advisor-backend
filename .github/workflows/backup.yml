@@ -1,0 +1,35 @@
+name: Encrypted database backup
+on:
+  schedule:
+    # 08:15 Asia/Kuala_Lumpur. GitHub may delay scheduled jobs.
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: production
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+      BACKUP_REQUIRE_ENCRYPTION: "true"
+      BACKUP_DIR: ${{ runner.temp }}/tracker-backups
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --omit=dev
+      - run: npm run backup
+      - uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-database-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/tracker-backups/*.enc
+          if-no-files-found: error
+          retention-days: 30

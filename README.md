@@ -1,6 +1,6 @@
-# My Investment Tracker - Phase 2
+# My Investment Tracker
 
-Existing Express/PostgreSQL app rebuilt around an owner-specific transaction ledger. Phase 2 work is on `rebuild/phase-2-records`, based on the committed Phase 1 rebuild. Nothing has been deployed and the cloud database has not been migrated by this rebuild session.
+Existing Express/PostgreSQL app rebuilt around an owner-specific transaction ledger. Phase 3 adds research, provider budgets and encrypted backups. The Supabase schema and reviewed local records were migrated on 2026-11-13; Render/Vercel application deployment is tracked separately. See [the deployment and recovery guide](DEPLOYMENT.md).
 
 ## Phase 2
 
@@ -70,7 +70,7 @@ Verified with the existing keys during this rebuild: US and USD/MYR requests suc
 
 Provider references: [Finnhub quote API](https://finnhub.io/docs/api/quote), [Twelve Data quotes](https://twelvedata.com/docs/market-data/quote), [Twelve Data exchange rates](https://twelvedata.com/docs/currencies/exchange-rate).
 
-Existing chart/news code remains in the repository. Legacy routes are disabled by default and can be mounted with `ENABLE_LEGACY_ROUTES=true`; the new frontend does not call them. Full research reconnection, provider usage controls, deployment and backups remain Phase 3 work.
+Research reconnects daily price charts, headlines, keyword sentiment and explicitly requested Gemini summaries through authenticated routes. Results are cached; attempted provider calls share persistent daily/minute budgets with quotes. AI summaries cite the supplied headlines. Legacy routes stay disabled in production. NewsAPI development keys cannot be used in production; US news uses Finnhub. Bursa pricing/history coverage remains limited by the current provider plan.
 
 ## Records and bulk entry
 
@@ -78,16 +78,16 @@ Trades -> Bulk entry accepts pasted CSV/TSV, local CSV/TSV/text, or a reviewed J
 
 Columns: `owner,date,type,market,symbol,currency,quantity,price,fee,amount,fx_rate,sequence,notes`. Owners use `mine`/`father`, dates use YYYY-MM-DD, fees and prices are positive, market is US/MY, and `fx_rate` means MYR per USD only when actually known. Use Bursa code `1155` for Maybank; the code remains a string, preserving leading zeroes for other stocks.
 
-The private input at `C:\Investment-advisor\private-records\reviewed-records.json` is outside both Git repositories. It contains 39 PDF records, including the confirmed GOOG fee correction, four cash distributions, and separate funding totals. These records are imported into the private local preview only. The cloud database is unchanged. No deposit dates or historical FX have been invented. Funding dates and the PDF's inconsistent bottom total remain to be reconciled.
+The private input at `C:\Investment-advisor\private-records\reviewed-records.json` is outside both Git repositories. It contains 39 PDF records, including the confirmed GOOG fee correction, four cash distributions, and separate funding totals. The current private local ledger and its audit/funding metadata were imported into the intended existing cloud account after a verified backup. Existing passwords and legacy holdings were retained. No deposit dates or historical FX have been invented. Funding dates and the PDF's inconsistent bottom total remain to be reconciled.
 
 The local input may also contain timestamped `quote_snapshots`. The preview imports newer snapshots into its local quote cache, retaining the source and quote timestamp; it never overwrites a newer provider quote with an older snapshot. Maybank's snapshot was verified on [its investor-relations site](https://maybank.listedcompany.com/). This is a dated quote, not a new automatic Bursa pricing provider.
 
 ## Validation
 
-`npm test` runs isolated in-memory SQLite API tests and accounting tests, without the cloud database. Tests cover fee-aware weighted averages, partial and full sales, fractional shares, owner isolation, dividends, cash, missing historical FX, chronological replay, input validation, authentication, atomic import rollback, duplicates, version conflicts, audit, manual prices and quote failures. HTTP tests need loopback networking in restricted environments.
+`npm test` runs isolated SQLite API/accounting tests and PostgreSQL integration tests when `TEST_DATABASE_URL` is provided. Tests cover fee-aware weighted averages, owner isolation, cash and corporate actions, atomic mutations, audit, quotes, research caching, provider budgets, verified TLS, encrypted backup recovery and safe local-to-cloud import. PostgreSQL tests use uniquely named temporary schemas; CI supplies a dedicated PostgreSQL service. HTTP tests need loopback networking in restricted environments.
 
-The frontend has `npm test` and `npm run build`. Desktop and 390px mobile layouts, login, bulk preview and saved corrections were also checked in the browser. PostgreSQL migration and cloud deployment have not been executed against the live database.
+The frontend has `npm test` and `npm run build`. Local login, holdings, charts and Research were checked in the browser. The live Supabase migration and record import passed production-mode API and account-isolation verification; the hosting rollout has separate checks in the deployment guide.
 
 ## Remaining phases
 
-Phase 2 features are implemented locally. Actual brokerage reconciliation remains pending the user's Moomoo figures and any missing history. Phase 3: chart/news/sentiment integration, deployment, automated backups and final hardening.
+Core accounting and research are implemented. Actual brokerage reconciliation remains pending the user's Moomoo figures and any missing history. Complete Render/Vercel rollout and verify a cloud-scheduled encrypted backup before treating deployment as finished.

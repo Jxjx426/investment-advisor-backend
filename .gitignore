@@ -5,6 +5,9 @@ node_modules
 *.db.*
 backups/
 *.json.gz
+*.enc
+*.key
+.backup-output/
 .tool-cache/
 private-records/
 .env.*
