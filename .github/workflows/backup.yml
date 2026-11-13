@@ -1,5 +1,9 @@
 name: Encrypted database backup
 on:
+  # Verify the encrypted cloud backup before merging the rollout to main.
+  push:
+    branches: ["rebuild/phase-3-research"]
+    paths: [".github/workflows/backup.yml"]
   schedule:
     # 08:15 Asia/Kuala_Lumpur. GitHub may delay scheduled jobs.
     - cron: "15 0 * * *"
