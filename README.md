@@ -21,7 +21,7 @@ flowchart LR
     API --> Research[Quotes + research]
     Ledger --> DB[("PostgreSQL<br/>Supabase")]
     Research --> DB
-    Research --> Market[Finnhub + Twelve Data]
+    Research --> Market["Finnhub / Twelve Data / Yahoo Finance"]
     Research --> AI[Google Gemini]
     DB -->|Application snapshot| Backup["GitHub Actions<br/>AES-256-GCM artifacts"]
 ```
@@ -37,6 +37,7 @@ The API calculates holdings and cash by replaying each account's ledger. Transac
 | better-sqlite3 | Local demo and isolated tests |
 | bcrypt + JSON Web Tokens | Password hashing and signed sessions |
 | Finnhub / Twelve Data | Market data, FX and headlines |
+| Yahoo Finance | Delayed Bursa and USD/MYR fallback quotes |
 | Google Gemini | Requested headline summaries |
 | GitHub Actions | Tests and encrypted daily backups |
 
@@ -95,7 +96,7 @@ Tracker, research and records-download routes require `Authorization: Bearer <to
 
 Owners have separate cost bases. Purchases include fees; sales allocate weighted cost and deduct sale fees. Replay order is date, same-day sequence, then ID. MYR/USD cash stays separate; capital flows are not trading profit.
 
-Missing funding history and current-FX valuations remain estimates until reconciled. Missing prices stay unavailable, with dated/manual fallbacks. Bursa coverage depends on the provider plan. AI summaries describe headlines and are not investment advice.
+Missing funding history and current-FX valuations remain estimates until reconciled. If Twelve Data cannot quote a Bursa stock or USD/MYR, the API tries Yahoo Finance's public delayed quotes, validating the symbol, exchange, currency and timestamp. This fallback needs no key and keeps its source/time; availability is not guaranteed. Older responses cannot replace newer cached prices. Missing prices stay unavailable, with a manual-price option. Bursa research/history still depends on the provider plan. AI summaries describe headlines and are not investment advice.
 
 ## Checks & Deployment
 

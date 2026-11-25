@@ -1,5 +1,5 @@
 // Counts attempted provider calls, including failures. Shared by quotes and research.
-const DEFAULTS = { finnhub: [30, 1000], twelve: [6, 600], news: [5, 50], gemini: [2, 10] };
+const DEFAULTS = { finnhub: [30, 1000], twelve: [6, 600], yahoo: [30, 1000], news: [5, 50], gemini: [2, 10] };
 function createUsageBudget(db, env = process.env, clock = Date.now) {
   async function reserve(provider) {
     const defaults = DEFAULTS[provider];
